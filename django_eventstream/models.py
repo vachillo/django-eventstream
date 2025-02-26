@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 
 from django.db import IntegrityError, models, transaction
+from django.conf import settings
 
 
 class EventCounter(models.Model):
@@ -35,11 +36,15 @@ class Event(models.Model):
         unique_together = ("channel", "eid")
 
     def save(self, *args, **kwargs):
+        db_alias = None
+        if hasattr(settings, "EVENTSTREAM_STORAGE_DB_ALIAS"):
+            db_alias = settings.EVENTSTREAM_STORAGE_DB_ALIAS
+
         if not self.eid:
             counter = EventCounter.get_or_create(self.channel)
 
-            with transaction.atomic():
-                counter = EventCounter.objects.select_for_update().get(id=counter.id)
+            with transaction.atomic(using=db_alias):
+                counter = EventCounter.objects.using(db_alias).select_for_update().get(id=counter.id)
 
                 if counter.value == 0:
                     # insert placeholder to enable querying from ID 0
