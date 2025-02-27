@@ -148,7 +148,7 @@ def get_listener_manager():
     return listener_manager
 
 
-async def stream(event_request, listener):
+async def stream(event_request, listener, terminate_on_event = None):
     from .eventstream import get_events, EventPermissionError
     from .utils import sse_encode_event, sse_encode_error, make_id
 
@@ -158,6 +158,8 @@ async def stream(event_request, listener):
 
     lm = get_listener_manager()
     lm.add_listener(listener)
+
+    close_stream = False
 
     try:
         first_result = True
@@ -227,7 +229,7 @@ async def stream(event_request, listener):
                     done, _ = await asyncio.wait([f], timeout=20)
                     if f in done:
                         break
-                    body = "event: keep-alive\ndata:\n\n"
+                    body = "event: keep-alive\ndata:\n\n".encode("utf-8")
                     yield body
 
                 lm.lock.acquire()
@@ -257,6 +259,8 @@ async def stream(event_request, listener):
                         body += sse_encode_event(
                             item.type, item.data, event_id=event_id
                         )
+                        if item.type == terminate_on_event and not close_stream:
+                            close_stream = True
 
                 more = True
 
@@ -266,17 +270,20 @@ async def stream(event_request, listener):
                     extra = error_data.get("extra")
                     body += sse_encode_error(condition, text, extra=extra)
                     more = False
+                    close_stream = True
 
-                if body or not more:
+                if body:
                     yield body
 
-                if not more:
+                if not more or close_stream:
                     break
 
                 if overflow:
                     # check db
                     break
 
+            if close_stream:
+                break
             event_request.channel_last_ids = last_ids
     finally:
         listener.aevent.set()
@@ -326,7 +333,7 @@ def events(request, **kwargs):
     listener.channels = event_request.channels
 
     response = StreamingHttpResponse(
-        stream(event_request, listener), content_type="text/event-stream"
+        stream(event_request, listener, kwargs.get("terminate_on_event")), content_type="text/event-stream"
     )
     add_default_headers(response, request=request)
 
