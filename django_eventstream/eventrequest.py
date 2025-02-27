@@ -84,7 +84,7 @@ class EventRequest(object):
                 if channel in channels:
                     channel_last_ids[channel] = last_id
         else:
-            last_event_id = http_request.META.get("HTTP_LAST_EVENT_ID")
+            last_event_id = view_kwargs.get("last_event_id", http_request.META.get("HTTP_LAST_EVENT_ID"))
             if not last_event_id:
                 # take the first non-empty param, from the end
                 for val in reversed(http_request.GET.getlist("lastEventId")):
